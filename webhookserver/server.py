@@ -29,10 +29,9 @@ class BaseWebHookServer:
         The wsgi application callable.
         """
         path, method, query = parse_wsgi_env(env)
-        relpath = path.replace(registered_path, "")
 
-        handler = self._match_handler(path)
-        data = handler.handle(relpath, method, query)
+        handler, remaining_path = self._get_handler(path)
+        data = handler.handle(remaining_path, method, query)
 
         status = "200 OK"
         response_headers = [
@@ -42,13 +41,14 @@ class BaseWebHookServer:
         start_response(status, response_headers)
         return [data]
 
-    def _match_handler(self, path: str) -> Handler:
+    def _get_handler(self, path: str) -> Handler:
         """
         Read the requested path and find the appropriate handler.
         """
         for registered_path, handler in self._hooks.items():
             if path.startswith(registered_path + "/"):
-                return handler
+                relpath = path.replace(registered_path, "")
+                return handler, relpath
 
     def __call__(self, *args, **kwargs):
         return self.serve_request(*args, **kwargs)
