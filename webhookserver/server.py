@@ -1,3 +1,4 @@
+import re
 from functools import singledispatch
 import json
 from urllib.parse import parse_qs
@@ -9,10 +10,24 @@ class Handler:
         if callable(callback):
             self.handle = callback
 
-    def handle(self, path, method, query):
+    def handle(self, request: dict, match: "UrlMatch"):
         raise NotImplementedError(
             "You have not specified a handle method for this Handler."
         )
+
+
+class UrlMatch:
+    """
+    A simple container class for routes matched by a requested URL.
+    """
+
+    def __init__(self, handler, path, match):
+        self.handler = handler
+        self.groups = match.groups()
+        self.named_groups = match.groupdict()
+        self.path = path[match.end() :]
+        self.full_path = path
+        self._matchobj = match
 
 
 class BaseWebHookServer:
@@ -22,17 +37,22 @@ class BaseWebHookServer:
         """
         Register a new callback to be executed when /<path>/ is accessed.
         """
-        self._hooks.update({path.rstrip("/"): handler})
+        path_regex = re.compile(path)
+        self._hooks.update({path_regex: handler})
 
     def serve_request(self, env: dict, start_response: Callable):
         """
         The wsgi application callable.
         """
         path, method, query = parse_wsgi_env(env)
-        relpath = path.replace(registered_path, "")
 
-        handler = self._match_handler(path)
-        data = handler.handle(relpath, method, query)
+        match = self._match_handler(path)
+        if not match:
+            return None
+
+        handler = match.handler
+
+        data = handler.handle(env, match)
 
         status = "200 OK"
         response_headers = [
@@ -42,13 +62,18 @@ class BaseWebHookServer:
         start_response(status, response_headers)
         return [data]
 
-    def _match_handler(self, path: str) -> Handler:
+    def _match_handler(self, path: str) -> (Handler, list, dict):
         """
         Read the requested path and find the appropriate handler.
+
+        Returns the matched handler, a list of unnamed groups and a dict of
+        named groups that may exist in the regular expression.
         """
-        for registered_path, handler in self._hooks.items():
-            if path.startswith(registered_path + "/"):
-                return handler
+        for path_regex, handler in self._hooks.items():
+            match = path_regex.search(path)
+            if match:
+                return UrlMatch(handler, path, match)
+        return None
 
     def __call__(self, *args, **kwargs):
         return self.serve_request(*args, **kwargs)

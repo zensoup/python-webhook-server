@@ -1,6 +1,6 @@
 from webhookserver.server import BaseWebHookServer, Handler
 
 
-handler = Handler(callback=lambda x, y, z: b'{"hoho": "lala"}')
+handler = Handler(callback=lambda x, y: b'{"hoho": "lala"}')
 server = BaseWebHookServer()
 server.register("", handler)
