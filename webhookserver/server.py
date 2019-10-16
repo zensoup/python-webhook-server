@@ -1,8 +1,10 @@
 import re
-from functools import singledispatch
-import json
-from urllib.parse import parse_qs
 from typing import Callable
+
+from webhookserver.response import Response
+
+# from urllib.parse import parse_qs
+
 
 
 class Handler:
@@ -31,7 +33,7 @@ class UrlMatch:
 
 
 class BaseWebHookServer:
-    _hooks = {}
+    _hooks = dict()
 
     def register(self, path: str, handler: Callable):
         """
@@ -44,7 +46,7 @@ class BaseWebHookServer:
         """
         The wsgi application callable.
         """
-        path, method, query = parse_wsgi_env(env)
+        path = env["PATH_INFO"]
 
         match = self._match_handler(path)
         if not match:
@@ -52,15 +54,12 @@ class BaseWebHookServer:
 
         handler = match.handler
 
-        data = handler.handle(env, match)
+        response = handler.handle(env, match)
+        if not isinstance(response, Response):
+            raise ValueError("Handlers must return an instance of Response.")
 
-        status = "200 OK"
-        response_headers = [
-            ("Content-type", "application/json"),
-            ("Content-Length", str(len(data))),
-        ]
-        start_response(status, response_headers)
-        return [data]
+        start_response(response.status, response.headers.items())
+        return response.get_response_body()
 
     def _match_handler(self, path: str) -> (Handler, list, dict):
         """
@@ -77,14 +76,3 @@ class BaseWebHookServer:
 
     def __call__(self, *args, **kwargs):
         return self.serve_request(*args, **kwargs)
-
-
-def parse_wsgi_env(environ: dict):
-    """
-    Parse a wsgi environment dictionary and return the request path, the
-    query string and the request method as a three-tuple.
-    """
-    query = parse_qs(environ["QUERY_STRING"])
-    method = environ["REQUEST_METHOD"]
-    path = environ["PATH_INFO"]
-    return path, method, query
